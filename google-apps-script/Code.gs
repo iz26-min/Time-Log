@@ -5,6 +5,10 @@
 
 var TZ = 'Asia/Hong_Kong';
 var SHEET_NAME = 'TimeLog';
+
+// 从表格 URL 复制：/d/【这一段】/edit
+// Web App 部署后 getActiveSpreadsheet() 常常拿不到表格，必须填 ID。
+var SPREADSHEET_ID = '1vV6zhBQaYurRieIWkXmUumxRaaJwwUQdIcWRIOSPVdE';
 var HEADERS = [
   'Id',
   'Date',
@@ -80,13 +84,21 @@ function jsonResponse_(obj) {
   );
 }
 
-function getSheet_() {
+function getSpreadsheet_() {
+  if (SPREADSHEET_ID) {
+    return SpreadsheetApp.openById(SPREADSHEET_ID);
+  }
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) {
     throw new Error(
-      'No active spreadsheet. Bind this script to your Google Sheet (Extensions → Apps Script).',
+      'Set SPREADSHEET_ID at top of Code.gs to your Sheet ID from the URL.',
     );
   }
+  return ss;
+}
+
+function getSheet_() {
+  var ss = getSpreadsheet_();
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_NAME);

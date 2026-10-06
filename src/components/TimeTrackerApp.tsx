@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useNow } from "@/hooks/useNow";
 import {
@@ -25,11 +25,6 @@ import {
   toHKISOString,
 } from "@/lib/time";
 
-type PendingConfirm = {
-  raw: string;
-  command: ParsedCommand;
-};
-
 type ActiveConflict = {
   active: ActivityEntry;
   pending: Extract<ParsedCommand, { intent: "START_ACTIVITY" }>;
@@ -44,9 +39,10 @@ export function TimeTrackerApp() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [textCommand, setTextCommand] = useState("");
-  const [pending, setPending] = useState<PendingConfirm | null>(null);
+  const [confirmText, setConfirmText] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ActiveConflict | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const commandInputRef = useRef<HTMLInputElement>(null);
 
   const fmtTime = useCallback((d: Date) => formatTimeDisplay(d), []);
 
@@ -82,13 +78,20 @@ export function TimeTrackerApp() {
   };
 
   const openConfirm = (raw: string) => {
-    const command = parseCommand(raw, now);
-    if (command.intent === "UNKNOWN") {
-      setError(`无法识别：「${raw}」。请尝试例如「开始早餐」或「Finish」。`);
-      return;
-    }
     setError(null);
-    setPending({ raw, command });
+    setConfirmText(raw.trim());
+  };
+
+  const focusCommandInput = () => {
+    const el = commandInputRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => el.focus(), 300);
+  };
+
+  const openCommandEditor = (initial: string) => {
+    setError(null);
+    setConfirmText(initial);
   };
 
   const executeCommand = async (command: ParsedCommand) => {
@@ -157,16 +160,22 @@ export function TimeTrackerApp() {
   };
 
   const onConfirm = async () => {
-    if (!pending) return;
-    const raw = pending.raw;
-    setPending(null);
+    if (!confirmText?.trim()) return;
+    const raw = confirmText.trim();
+    setConfirmText(null);
     const cmd = parseCommand(raw, new Date());
     if (cmd.intent === "UNKNOWN") {
-      setError(`无法识别：「${raw}」`);
+      setError(`无法识别：「${raw}」。可改成例如「开始 写作业」或「结束」。`);
+      setTextCommand(raw);
+      focusCommandInput();
       return;
     }
     await executeCommand(cmd);
   };
+
+  const confirmPreview = confirmText
+    ? parseCommand(confirmText, new Date())
+    : null;
 
   const onConflictResolve = async (finishPrevious: boolean) => {
     if (!conflict) return;
@@ -248,55 +257,18 @@ export function TimeTrackerApp() {
             <button
               type="button"
               disabled={busy || !isApiConfigured()}
-              onClick={() => setTextCommand("开始 ")}
+              onClick={() => openCommandEditor("开始 ")}
               className="mt-4 w-full rounded-2xl border border-neutral-300 py-4 text-lg font-medium text-neutral-900 active:scale-[0.99] disabled:opacity-40"
             >
-              开始活动（输入指令）
+              开始活动（点这里输入文字）
             </button>
           </>
         )}
       </section>
 
-      <section className="flex flex-col items-center gap-3">
-        <button
-          type="button"
-          aria-label="语音输入"
-          disabled={busy || !isApiConfigured()}
-          onClick={() => {
-            if (!speech.supported) {
-              setError("此设备不支持语音识别，请使用下方文字输入。");
-              return;
-            }
-            speech.start();
-          }}
-          className={`flex h-28 w-28 items-center justify-center rounded-full shadow-md transition active:scale-95 disabled:opacity-40 ${
-            speech.status === "listening"
-              ? "bg-red-500 text-white"
-              : "bg-neutral-900 text-white"
-          }`}
-        >
-          <MicIcon className="h-12 w-12" />
-        </button>
-        <p className="text-center text-sm text-neutral-600">
-          {speech.supported
-            ? speech.status === "listening"
-              ? "正在聆听…"
-              : "点击并说话"
-            : "语音识别不可用 — 请使用文字输入"}
-        </p>
-        {speech.transcript && speech.status === "listening" && (
-          <p className="text-center text-sm text-neutral-800">
-            「{speech.transcript}」
-          </p>
-        )}
-        {speech.errorMessage && (
-          <p className="text-center text-xs text-neutral-500">
-            {speech.errorMessage}
-          </p>
-        )}
-
+      <section className="flex flex-col gap-3">
         <form
-          className="mt-2 w-full"
+          className="w-full"
           onSubmit={(e) => {
             e.preventDefault();
             if (!textCommand.trim()) return;
@@ -304,19 +276,70 @@ export function TimeTrackerApp() {
             setTextCommand("");
           }}
         >
-          <label className="sr-only" htmlFor="cmd">
-            输入指令
+          <label
+            htmlFor="cmd"
+            className="mb-2 block text-sm font-medium text-neutral-700"
+          >
+            输入指令（推荐，比语音更准确）
           </label>
           <input
+            ref={commandInputRef}
             id="cmd"
             value={textCommand}
             onChange={(e) => setTextCommand(e.target.value)}
-            placeholder="或输入指令，例如：开始 breakfast / Finish"
-            className="w-full rounded-2xl border border-neutral-300 bg-white px-4 py-3 text-base text-neutral-900 placeholder:text-neutral-400"
+            placeholder="例如：开始 写作业 / 结束 / Finish"
+            className="w-full rounded-2xl border-2 border-neutral-300 bg-white px-4 py-4 text-lg text-neutral-900 placeholder:text-neutral-400"
             autoComplete="off"
-            enterKeyHint="send"
+            enterKeyHint="done"
+            disabled={busy || !isApiConfigured()}
           />
+          <button
+            type="submit"
+            disabled={busy || !isApiConfigured() || !textCommand.trim()}
+            className="mt-3 w-full rounded-2xl bg-neutral-900 py-4 text-lg font-medium text-white disabled:opacity-40"
+          >
+            提交指令
+          </button>
         </form>
+
+        <p className="text-center text-xs text-neutral-500">
+          iPhone 上语音识别容易听错，建议优先打字；说完仍可在确认框里改字。
+        </p>
+
+        <div className="flex flex-col items-center gap-2 pt-2">
+          <button
+            type="button"
+            aria-label="语音输入（可选）"
+            disabled={busy || !isApiConfigured()}
+            onClick={() => {
+              if (!speech.supported) {
+                setError("此浏览器不支持语音识别，请用上方文字框。");
+                focusCommandInput();
+                return;
+              }
+              speech.start();
+            }}
+            className={`flex h-20 w-20 items-center justify-center rounded-full shadow-md transition active:scale-95 disabled:opacity-40 ${
+              speech.status === "listening"
+                ? "bg-red-500 text-white"
+                : "border-2 border-neutral-300 bg-white text-neutral-800"
+            }`}
+          >
+            <MicIcon className="h-10 w-10" />
+          </button>
+          <p className="text-center text-sm text-neutral-600">
+            {speech.supported
+              ? speech.status === "listening"
+                ? "正在聆听…"
+                : "可选：语音输入"
+              : "语音不可用"}
+          </p>
+          {speech.transcript && speech.status === "listening" && (
+            <p className="text-center text-sm text-neutral-800">
+              「{speech.transcript}」
+            </p>
+          )}
+        </div>
       </section>
 
       <section>
@@ -336,33 +359,54 @@ export function TimeTrackerApp() {
         )}
       </section>
 
-      {pending && pending.command.intent !== "UNKNOWN" && (
+      {confirmText !== null && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 sm:items-center">
           <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-xl">
             <p className="text-xs font-medium uppercase text-neutral-400">
-              你说
+              指令（可修改）
             </p>
-            <p className="mt-1 text-lg text-neutral-900">「{pending.raw}」</p>
+            <input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              className="mt-2 w-full rounded-xl border-2 border-neutral-400 px-3 py-4 text-lg"
+              autoFocus
+              inputMode="text"
+              enterKeyHint="done"
+            />
             <p className="mt-4 text-xs font-medium uppercase text-neutral-400">
-              操作
+              操作预览
             </p>
-            <p className="mt-1 font-medium text-neutral-900">
-              {describeCommand(pending.command, fmtTime).title}
-            </p>
-            <p className="mt-1 text-neutral-600">
-              {describeCommand(pending.command, fmtTime).detail}
-            </p>
+            {confirmPreview && confirmPreview.intent !== "UNKNOWN" ? (
+              <>
+                <p className="mt-1 font-medium text-neutral-900">
+                  {describeCommand(confirmPreview, fmtTime).title}
+                </p>
+                <p className="mt-1 text-neutral-600">
+                  {describeCommand(confirmPreview, fmtTime).detail}
+                </p>
+              </>
+            ) : (
+              <p className="mt-1 text-amber-800">
+                暂时无法识别，请改成例如「开始 写作业」或「结束」。
+              </p>
+            )}
             <div className="mt-5 flex gap-3">
               <button
                 type="button"
                 className="flex-1 rounded-2xl border border-neutral-300 py-3 font-medium"
-                onClick={() => setPending(null)}
+                onClick={() => setConfirmText(null)}
               >
                 取消
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={
+                  busy ||
+                  !isApiConfigured() ||
+                  !confirmText.trim() ||
+                  !confirmPreview ||
+                  confirmPreview.intent === "UNKNOWN"
+                }
                 className="flex-1 rounded-2xl bg-neutral-900 py-3 font-medium text-white disabled:opacity-40"
                 onClick={onConfirm}
               >

@@ -2,7 +2,7 @@ import { normalizeInput, parseTimeToken } from "./time";
 
 export type ParsedCommand =
   | { intent: "START_ACTIVITY"; task: string; startAt: Date }
-  | { intent: "END_ACTIVITY"; endAt: Date }
+  | { intent: "END_ACTIVITY"; endAt: Date; taskHint?: string }
   | { intent: "ADD_COMPLETE_ACTIVITY"; task: string; startAt: Date; endAt: Date }
   | { intent: "UNKNOWN"; raw: string; reason?: string };
 
@@ -26,9 +26,30 @@ export function parseCommand(raw: string, referenceNow: Date): ParsedCommand {
 
   const lower = text.toLowerCase();
 
-  // --- END ---
-  if (lower === "finish" || lower === "结束" || lower === "完成") {
-    return { intent: "END_ACTIVITY", endAt: referenceNow };
+  // --- END: 结束 / 结束 写作业 / Finish / Finish homework ---
+  const enFinish = text.match(/^finish(?:\s+(.+))?$/i);
+  if (enFinish) {
+    return {
+      intent: "END_ACTIVITY",
+      endAt: referenceNow,
+      taskHint: enFinish[1]?.trim() || undefined,
+    };
+  }
+  const cnEnd = text.match(/^结束(?:\s+(.+))?$/);
+  if (cnEnd) {
+    return {
+      intent: "END_ACTIVITY",
+      endAt: referenceNow,
+      taskHint: cnEnd[1]?.trim() || undefined,
+    };
+  }
+  const cnDone = text.match(/^完成(?:\s+(.+))?$/);
+  if (cnDone) {
+    return {
+      intent: "END_ACTIVITY",
+      endAt: referenceNow,
+      taskHint: cnDone[1]?.trim() || undefined,
+    };
   }
 
   // --- ADD COMPLETE (English) ---
@@ -124,7 +145,9 @@ export function describeCommand(
     case "END_ACTIVITY":
       return {
         title: "结束活动",
-        detail: `结束当前活动，结束于 ${formatTime(cmd.endAt)}`,
+        detail: cmd.taskHint
+          ? `结束「${cmd.taskHint}」（当前进行中的活动），结束于 ${formatTime(cmd.endAt)}`
+          : `结束当前活动，结束于 ${formatTime(cmd.endAt)}`,
       };
     case "ADD_COMPLETE_ACTIVITY":
       return {
