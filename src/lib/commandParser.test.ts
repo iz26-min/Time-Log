@@ -26,10 +26,18 @@ describe("parseCommand", () => {
     assert.equal(parseCommand("Finish", ref).intent, "END_ACTIVITY");
     assert.equal(parseCommand("结束", ref).intent, "END_ACTIVITY");
     assert.equal(parseCommand("结束 写作业", ref).intent, "END_ACTIVITY");
+    assert.equal(parseCommand("结束写作业", ref).intent, "END_ACTIVITY");
     assert.equal(parseCommand("Finish homework", ref).intent, "END_ACTIVITY");
     assert.equal(parseCommand("Finished homework", ref).intent, "END_ACTIVITY");
+    assert.equal(parseCommand("Ended homework", ref).intent, "END_ACTIVITY");
+    assert.equal(parseCommand("ended homework.", ref).intent, "END_ACTIVITY");
     assert.equal(parseCommand("结束任务B", ref).intent, "END_ACTIVITY");
     assert.equal(parseCommand("开始任务A", ref).intent, "START_ACTIVITY");
+    const ended = parseCommand("Ended 写作业", ref);
+    assert.equal(ended.intent, "END_ACTIVITY");
+    if (ended.intent === "END_ACTIVITY") {
+      assert.equal(ended.taskHint, "写作业");
+    }
   });
 
   it("starts at time English", () => {

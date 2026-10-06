@@ -6,6 +6,56 @@ export type ParsedCommand =
   | { intent: "ADD_COMPLETE_ACTIVITY"; task: string; startAt: Date; endAt: Date }
   | { intent: "UNKNOWN"; raw: string; reason?: string };
 
+function parseEndCommand(
+  text: string,
+  referenceNow: Date,
+): ParsedCommand | null {
+  const cnEndTask = text.match(/^结束任务\s*(.+)$/);
+  if (cnEndTask) {
+    return {
+      intent: "END_ACTIVITY",
+      endAt: referenceNow,
+      taskHint: cnEndTask[1].trim(),
+    };
+  }
+
+  if (text === "结束" || text === "完成") {
+    return { intent: "END_ACTIVITY", endAt: referenceNow };
+  }
+  if (text.startsWith("结束") && text.length > 2) {
+    return {
+      intent: "END_ACTIVITY",
+      endAt: referenceNow,
+      taskHint: text.slice(2).trim(),
+    };
+  }
+  if (text.startsWith("完成") && text.length > 2) {
+    return {
+      intent: "END_ACTIVITY",
+      endAt: referenceNow,
+      taskHint: text.slice(2).trim(),
+    };
+  }
+
+  const lower = text.toLowerCase();
+  const englishEndWords = ["finished", "ended", "finish", "end"] as const;
+  for (const word of englishEndWords) {
+    if (lower === word) {
+      return { intent: "END_ACTIVITY", endAt: referenceNow };
+    }
+    if (lower.startsWith(word)) {
+      const rest = text.slice(word.length).trim();
+      return {
+        intent: "END_ACTIVITY",
+        endAt: referenceNow,
+        taskHint: rest || undefined,
+      };
+    }
+  }
+
+  return null;
+}
+
 function tryStartAtSuffix(
   taskPart: string,
   reference: Date,
@@ -24,47 +74,8 @@ export function parseCommand(raw: string, referenceNow: Date): ParsedCommand {
     return { intent: "UNKNOWN", raw, reason: "empty" };
   }
 
-  // --- END (check 结束任务 before 结束) ---
-  const cnEndTask = text.match(/^结束任务\s*(.+)$/);
-  if (cnEndTask) {
-    return {
-      intent: "END_ACTIVITY",
-      endAt: referenceNow,
-      taskHint: cnEndTask[1].trim(),
-    };
-  }
-  const cnEnd = text.match(/^结束(?:\s+(.+))?$/);
-  if (cnEnd) {
-    return {
-      intent: "END_ACTIVITY",
-      endAt: referenceNow,
-      taskHint: cnEnd[1]?.trim() || undefined,
-    };
-  }
-  const cnDone = text.match(/^完成(?:\s+(.+))?$/);
-  if (cnDone) {
-    return {
-      intent: "END_ACTIVITY",
-      endAt: referenceNow,
-      taskHint: cnDone[1]?.trim() || undefined,
-    };
-  }
-  const enFinished = text.match(/^finished(?:\s+(.+))?$/i);
-  if (enFinished) {
-    return {
-      intent: "END_ACTIVITY",
-      endAt: referenceNow,
-      taskHint: enFinished[1]?.trim() || undefined,
-    };
-  }
-  const enFinish = text.match(/^finish(?:\s+(.+))?$/i);
-  if (enFinish) {
-    return {
-      intent: "END_ACTIVITY",
-      endAt: referenceNow,
-      taskHint: enFinish[1]?.trim() || undefined,
-    };
-  }
+  const endCmd = parseEndCommand(text, referenceNow);
+  if (endCmd) return endCmd;
 
   // --- ADD COMPLETE (English) ---
   const enRecord = text.match(/^record\s+(.+?)\s+from\s+(.+?)\s+to\s+(.+)$/i);

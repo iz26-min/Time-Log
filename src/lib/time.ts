@@ -130,7 +130,8 @@ export function normalizeInput(s: string): string {
     .trim()
     .replace(/\u3000/g, " ")
     .replace(/[：]/g, ":")
-    .replace(/\s+/g, " ");
+    .replace(/\s+/g, " ")
+    .replace(/[。．，,.!！?？]+$/g, "");
 }
 
 /**
