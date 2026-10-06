@@ -6,19 +6,16 @@
 var TZ = 'Asia/Hong_Kong';
 var SHEET_NAME = 'TimeLog';
 
-// 从表格 URL 复制：/d/【这一段】/edit
-// Web App 部署后 getActiveSpreadsheet() 常常拿不到表格，必须填 ID。
 var SPREADSHEET_ID = '1vV6zhBQaYurRieIWkXmUumxRaaJwwUQdIcWRIOSPVdE';
+
+/** Columns stored in the sheet (no Id / Created / Updated). */
 var HEADERS = [
-  'Id',
   'Date',
   'Task',
   'Start At',
   'End At',
   'Duration Minutes',
   'Notes',
-  'Created At',
-  'Updated At',
 ];
 
 function doGet(e) {
@@ -112,46 +109,68 @@ function ensureHeaders_(sheet) {
     sheet.setFrozenRows(1);
     return;
   }
-  var firstRow = sheet.getRange(1, 1, 1, HEADERS.length).getValues()[0];
-  var needsHeader = firstRow[0] !== 'Id';
-  if (needsHeader) {
+  var firstCell = String(sheet.getRange(1, 1).getValue() || '').trim();
+  if (firstCell !== 'Date' && firstCell !== 'Id') {
     sheet.insertRowBefore(1);
     sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
     sheet.setFrozenRows(1);
   }
 }
 
-function colIndex_(name) {
-  return HEADERS.indexOf(name) + 1;
+function buildColMap_(sheet) {
+  var lastCol = Math.max(sheet.getLastColumn(), HEADERS.length);
+  var headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var map = {};
+  for (var c = 0; c < headerRow.length; c++) {
+    var name = String(headerRow[c] || '').trim();
+    if (name) map[name] = c + 1;
+  }
+  return map;
+}
+
+function col_(map, name) {
+  var idx = map[name];
+  if (!idx) throw new Error('Missing column in sheet: ' + name);
+  return idx;
 }
 
 function readAllRows_(sheet) {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
-  var values = sheet.getRange(2, 1, lastRow, HEADERS.length).getValues();
+  var colMap = buildColMap_(sheet);
+  var lastCol = sheet.getLastColumn();
+  var values = sheet.getRange(2, 1, lastRow, lastCol).getValues();
   var rows = [];
   for (var i = 0; i < values.length; i++) {
-    var row = rowToEntry_(values[i]);
-    if (row) rows.push(row);
+    var sheetRow = i + 2;
+    var entry = rowToEntry_(values[i], sheetRow, colMap);
+    if (entry) rows.push(entry);
   }
   return rows;
 }
 
-function rowToEntry_(row) {
-  var id = String(row[0] || '').trim();
-  if (!id) return null;
+function cell_(row, colMap, name) {
+  var idx = col_(colMap, name) - 1;
+  return row[idx];
+}
+
+function rowToEntry_(row, sheetRow, colMap) {
+  var task = String(cell_(row, colMap, 'Task') || '').trim();
+  var startRaw = cell_(row, colMap, 'Start At');
+  if (!task && !startRaw) return null;
+
+  var endRaw = cell_(row, colMap, 'End At');
+  var durRaw = cell_(row, colMap, 'Duration Minutes');
 
   return {
-    id: id,
-    date: formatDateCell_(row[1]),
-    task: String(row[2] || ''),
-    startAt: formatDateTimeCell_(row[3]),
-    endAt: row[4] ? formatDateTimeCell_(row[4]) : null,
-    durationMinutes: row[5] === '' || row[5] === null ? null : Number(row[5]),
-    notes: String(row[6] || ''),
-    createdAt: formatDateTimeCell_(row[7]),
-    updatedAt: formatDateTimeCell_(row[8]),
+    id: 'row:' + sheetRow,
+    date: formatDateCell_(cell_(row, colMap, 'Date')),
+    task: task,
+    startAt: formatDateTimeCell_(startRaw),
+    endAt: endRaw ? formatDateTimeCell_(endRaw) : null,
+    durationMinutes: durRaw === '' || durRaw === null ? null : Number(durRaw),
+    notes: String(cell_(row, colMap, 'Notes') || ''),
   };
 }
 
@@ -197,21 +216,22 @@ function durationMinutes_(start, end) {
   return Math.round((endMs - startMs) / 60000);
 }
 
-function uuid_() {
-  return Utilities.getUuid();
-}
-
 function nowHK_() {
   return new Date();
 }
 
-function findRowById_(sheet, id) {
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return -1;
-  var ids = sheet.getRange(2, 1, lastRow, 1).getValues();
-  for (var i = 0; i < ids.length; i++) {
-    if (String(ids[i][0]) === id) return i + 2;
+function parseRowId_(id) {
+  if (!id) return -1;
+  var s = String(id);
+  if (s.indexOf('row:') === 0) {
+    return parseInt(s.slice(4), 10);
   }
+  return -1;
+}
+
+function findRowByEntryId_(sheet, entryId) {
+  var row = parseRowId_(entryId);
+  if (row >= 2 && row <= sheet.getLastRow()) return row;
   return -1;
 }
 
@@ -223,11 +243,6 @@ function getActiveEntries_(rows, today) {
     return a.startAt < b.startAt ? 1 : -1;
   });
   return active;
-}
-
-function getActiveEntry_(rows, today) {
-  var list = getActiveEntries_(rows, today);
-  return list.length ? list[0] : null;
 }
 
 function normalizeHint_(hint) {
@@ -306,7 +321,6 @@ function startActivity_(sheet, params) {
 
   var startAt = parseISOToDate_(params.startAt);
   var today = hkCalendarDate_(startAt);
-  var now = nowHK_();
 
   if (params.finishPreviousId) {
     finishActivity_(sheet, {
@@ -315,20 +329,7 @@ function startActivity_(sheet, params) {
     });
   }
 
-  var id = uuid_();
-  var isoStart = toHKISOString_(startAt);
-  var row = [
-    id,
-    today,
-    task,
-    startAt,
-    '',
-    '',
-    '',
-    now,
-    now,
-  ];
-  sheet.appendRow(row);
+  sheet.appendRow([today, task, startAt, '', '', '']);
 
   return getTodayState_(sheet);
 }
@@ -336,6 +337,7 @@ function startActivity_(sheet, params) {
 function finishActivity_(sheet, params) {
   var endAt = parseISOToDate_(params.endAt);
   var today = hkCalendarDate_(endAt);
+  var colMap = buildColMap_(sheet);
 
   var rows = readAllRows_(sheet);
   var target = pickActiveToFinish_(
@@ -345,17 +347,16 @@ function finishActivity_(sheet, params) {
     params.id,
   );
   if (!target) throw new Error('No active activity to finish');
-  var rowIndex = findRowById_(sheet, target.id);
+  var rowIndex = findRowByEntryId_(sheet, target.id);
   if (rowIndex < 0) throw new Error('Activity not found');
 
-  var startCell = sheet.getRange(rowIndex, colIndex_('Start At')).getValue();
+  var startCell = sheet.getRange(rowIndex, col_(colMap, 'Start At')).getValue();
   var startAt =
     startCell instanceof Date ? startCell : parseISOToDate_(String(startCell));
   var mins = durationMinutes_(startAt, endAt);
 
-  sheet.getRange(rowIndex, colIndex_('End At')).setValue(endAt);
-  sheet.getRange(rowIndex, colIndex_('Duration Minutes')).setValue(mins);
-  sheet.getRange(rowIndex, colIndex_('Updated At')).setValue(nowHK_());
+  sheet.getRange(rowIndex, col_(colMap, 'End At')).setValue(endAt);
+  sheet.getRange(rowIndex, col_(colMap, 'Duration Minutes')).setValue(mins);
 
   return getTodayState_(sheet);
 }
@@ -372,20 +373,8 @@ function addCompleteActivity_(sheet, params) {
   }
 
   var today = hkCalendarDate_(startAt);
-  var now = nowHK_();
-  var id = uuid_();
 
-  sheet.appendRow([
-    id,
-    today,
-    task,
-    startAt,
-    endAt,
-    mins,
-    '',
-    now,
-    now,
-  ]);
+  sheet.appendRow([today, task, startAt, endAt, mins, '']);
 
   return getTodayState_(sheet);
 }

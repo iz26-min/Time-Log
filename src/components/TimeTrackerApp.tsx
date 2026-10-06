@@ -409,6 +409,10 @@ export function TimeTrackerApp() {
           {toast}
         </div>
       )}
+
+      <p className="pb-2 text-center text-[10px] text-neutral-400">
+        版本 {process.env.NEXT_PUBLIC_BUILD_ID ?? "?"}
+      </p>
     </div>
   );
 }

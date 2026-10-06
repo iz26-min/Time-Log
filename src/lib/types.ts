@@ -1,4 +1,5 @@
 export type ActivityEntry = {
+  /** Internal row reference (not stored in sheet). */
   id: string;
   date: string;
   task: string;
@@ -6,8 +7,6 @@ export type ActivityEntry = {
   endAt: string | null;
   durationMinutes: number | null;
   notes: string;
-  createdAt: string;
-  updatedAt: string;
 };
 
 export type TodayState = {

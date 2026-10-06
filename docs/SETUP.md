@@ -13,9 +13,11 @@
 3. 把底部工作表标签改名为 **`TimeLog`**（必须完全一致）。
 4. 在第一行填入表头（从 A1 开始，共 9 列）：
 
-| A | B | C | D | E | F | G | H | I |
-|---|---|---|---|---|---|---|---|---|
-| Id | Date | Task | Start At | End At | Duration Minutes | Notes | Created At | Updated At |
+| A | B | C | D | E | F |
+|---|---|---|---|---|---|
+| Date | Task | Start At | End At | Duration Minutes | Notes |
+
+（**End At** 和 **Duration Minutes** 在活动进行中会留空；说「结束」后会自动填上。）
 
 5. **暂时不用填数据行**；应用会自动写入。
 
