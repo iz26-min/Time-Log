@@ -13,7 +13,10 @@ export type ActivityEntry = {
 export type TodayState = {
   today: string;
   timezone: string;
+  /** Most recently started open activity (stack top). */
   active: ActivityEntry | null;
+  /** All open activities today, newest first. */
+  actives: ActivityEntry[];
   entries: ActivityEntry[];
 };
 
@@ -25,7 +28,7 @@ export type ApiAction =
       startAt: string;
       finishPreviousId?: string;
     }
-  | { action: "finishActivity"; id?: string; endAt: string }
+  | { action: "finishActivity"; id?: string; endAt: string; taskHint?: string }
   | {
       action: "addCompleteActivity";
       task: string;

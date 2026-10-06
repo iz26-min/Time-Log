@@ -215,15 +215,68 @@ function findRowById_(sheet, id) {
   return -1;
 }
 
-function getActiveEntry_(rows, today) {
+function getActiveEntries_(rows, today) {
   var active = rows.filter(function (r) {
     return r.date === today && !r.endAt;
   });
-  if (active.length === 0) return null;
   active.sort(function (a, b) {
     return a.startAt < b.startAt ? 1 : -1;
   });
-  return active[0];
+  return active;
+}
+
+function getActiveEntry_(rows, today) {
+  var list = getActiveEntries_(rows, today);
+  return list.length ? list[0] : null;
+}
+
+function normalizeHint_(hint) {
+  return String(hint || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^任务/, '');
+}
+
+function tasksMatch_(task, hint) {
+  var t = String(task || '')
+    .trim()
+    .toLowerCase();
+  var h = normalizeHint_(hint);
+  if (!h) return false;
+  if (t === h) return true;
+  var tStripped = t.replace(/^任务/, '');
+  if (tStripped === h) return true;
+  if (t.indexOf(h) >= 0 || h.indexOf(t) >= 0) return true;
+  if (tStripped.indexOf(h) >= 0 || h.indexOf(tStripped) >= 0) return true;
+  return false;
+}
+
+function pickActiveToFinish_(rows, today, taskHint, id) {
+  var actives = getActiveEntries_(rows, today);
+  if (actives.length === 0) return null;
+
+  if (id) {
+    for (var i = 0; i < actives.length; i++) {
+      if (actives[i].id === id) return actives[i];
+    }
+    throw new Error('Activity not found');
+  }
+
+  if (taskHint) {
+    for (var j = 0; j < actives.length; j++) {
+      if (tasksMatch_(actives[j].task, taskHint)) return actives[j];
+    }
+    throw new Error(
+      'No active activity matching "' +
+        taskHint +
+        '". Open: ' +
+        actives.map(function (a) {
+          return a.task;
+        }).join(', '),
+    );
+  }
+
+  return actives[0];
 }
 
 function getTodayState_(sheet) {
@@ -236,10 +289,13 @@ function getTodayState_(sheet) {
     return a.startAt < b.startAt ? 1 : -1;
   });
 
+  var actives = getActiveEntries_(rows, today);
+
   return {
     today: today,
     timezone: TZ,
-    active: getActiveEntry_(rows, today),
+    active: actives.length ? actives[0] : null,
+    actives: actives,
     entries: todayRows,
   };
 }
@@ -257,15 +313,6 @@ function startActivity_(sheet, params) {
       id: params.finishPreviousId,
       endAt: toHKISOString_(startAt),
     });
-  } else {
-    var rows = readAllRows_(sheet);
-    var existing = getActiveEntry_(rows, today);
-    if (existing) {
-      throw new Error(
-        'ACTIVE_CONFLICT:' +
-          JSON.stringify({ active: existing, task: task, startAt: params.startAt }),
-      );
-    }
   }
 
   var id = uuid_();
@@ -290,16 +337,16 @@ function finishActivity_(sheet, params) {
   var endAt = parseISOToDate_(params.endAt);
   var today = hkCalendarDate_(endAt);
 
-  var rowIndex = -1;
-  if (params.id) {
-    rowIndex = findRowById_(sheet, params.id);
-    if (rowIndex < 0) throw new Error('Activity not found');
-  } else {
-    var rows = readAllRows_(sheet);
-    var active = getActiveEntry_(rows, today);
-    if (!active) throw new Error('No active activity to finish');
-    rowIndex = findRowById_(sheet, active.id);
-  }
+  var rows = readAllRows_(sheet);
+  var target = pickActiveToFinish_(
+    rows,
+    today,
+    params.taskHint,
+    params.id,
+  );
+  if (!target) throw new Error('No active activity to finish');
+  var rowIndex = findRowById_(sheet, target.id);
+  if (rowIndex < 0) throw new Error('Activity not found');
 
   var startCell = sheet.getRange(rowIndex, colIndex_('Start At')).getValue();
   var startAt =

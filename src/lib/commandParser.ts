@@ -24,15 +24,13 @@ export function parseCommand(raw: string, referenceNow: Date): ParsedCommand {
     return { intent: "UNKNOWN", raw, reason: "empty" };
   }
 
-  const lower = text.toLowerCase();
-
-  // --- END: 结束 / 结束 写作业 / Finish / Finish homework ---
-  const enFinish = text.match(/^finish(?:\s+(.+))?$/i);
-  if (enFinish) {
+  // --- END (check 结束任务 before 结束) ---
+  const cnEndTask = text.match(/^结束任务\s*(.+)$/);
+  if (cnEndTask) {
     return {
       intent: "END_ACTIVITY",
       endAt: referenceNow,
-      taskHint: enFinish[1]?.trim() || undefined,
+      taskHint: cnEndTask[1].trim(),
     };
   }
   const cnEnd = text.match(/^结束(?:\s+(.+))?$/);
@@ -49,6 +47,22 @@ export function parseCommand(raw: string, referenceNow: Date): ParsedCommand {
       intent: "END_ACTIVITY",
       endAt: referenceNow,
       taskHint: cnDone[1]?.trim() || undefined,
+    };
+  }
+  const enFinished = text.match(/^finished(?:\s+(.+))?$/i);
+  if (enFinished) {
+    return {
+      intent: "END_ACTIVITY",
+      endAt: referenceNow,
+      taskHint: enFinished[1]?.trim() || undefined,
+    };
+  }
+  const enFinish = text.match(/^finish(?:\s+(.+))?$/i);
+  if (enFinish) {
+    return {
+      intent: "END_ACTIVITY",
+      endAt: referenceNow,
+      taskHint: enFinish[1]?.trim() || undefined,
     };
   }
 
@@ -85,6 +99,25 @@ export function parseCommand(raw: string, referenceNow: Date): ParsedCommand {
     return { intent: "UNKNOWN", raw, reason: "could not parse times in 记录" };
   }
 
+  // --- START (English): start task B ---
+  const enStartTask = text.match(/^start\s+task\s+(.+)$/i);
+  if (enStartTask) {
+    const body = enStartTask[1].trim();
+    const withAt = tryStartAtSuffix(body, referenceNow);
+    if (withAt) {
+      return {
+        intent: "START_ACTIVITY",
+        task: withAt.task,
+        startAt: withAt.startAt,
+      };
+    }
+    return {
+      intent: "START_ACTIVITY",
+      task: body,
+      startAt: referenceNow,
+    };
+  }
+
   // --- START (English) ---
   const enStart = text.match(/^start\s+(.+)$/i);
   if (enStart) {
@@ -117,6 +150,16 @@ export function parseCommand(raw: string, referenceNow: Date): ParsedCommand {
     }
   }
 
+  // --- START (Chinese): 开始任务A ---
+  const cnStartTask = text.match(/^开始任务\s*(.+)$/);
+  if (cnStartTask) {
+    return {
+      intent: "START_ACTIVITY",
+      task: cnStartTask[1].trim(),
+      startAt: referenceNow,
+    };
+  }
+
   // --- START (Chinese): 开始 XXX ---
   if (text.startsWith("开始")) {
     const body = text.slice(2).trim();
@@ -146,8 +189,8 @@ export function describeCommand(
       return {
         title: "结束活动",
         detail: cmd.taskHint
-          ? `结束「${cmd.taskHint}」（当前进行中的活动），结束于 ${formatTime(cmd.endAt)}`
-          : `结束当前活动，结束于 ${formatTime(cmd.endAt)}`,
+          ? `结束进行中的「${cmd.taskHint}」，结束于 ${formatTime(cmd.endAt)}`
+          : `结束最近开始的一项（栈顶），结束于 ${formatTime(cmd.endAt)}`,
       };
     case "ADD_COMPLETE_ACTIVITY":
       return {

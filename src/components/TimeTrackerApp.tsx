@@ -25,11 +25,6 @@ import {
   toHKISOString,
 } from "@/lib/time";
 
-type ActiveConflict = {
-  active: ActivityEntry;
-  pending: Extract<ParsedCommand, { intent: "START_ACTIVITY" }>;
-};
-
 export function TimeTrackerApp() {
   const now = useNow();
   const speech = useSpeechRecognition("zh-HK");
@@ -40,7 +35,6 @@ export function TimeTrackerApp() {
   const [error, setError] = useState<string | null>(null);
   const [textCommand, setTextCommand] = useState("");
   const [confirmText, setConfirmText] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<ActiveConflict | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const commandInputRef = useRef<HTMLInputElement>(null);
 
@@ -100,6 +94,8 @@ export function TimeTrackerApp() {
     const key = submissionKey({
       intent: command.intent,
       task: "task" in command ? command.task : "",
+      hint:
+        command.intent === "END_ACTIVITY" ? command.taskHint : undefined,
       start:
         "startAt" in command ? toHKISOString(command.startAt) : undefined,
       end: "endAt" in command ? toHKISOString(command.endAt) : undefined,
@@ -115,31 +111,15 @@ export function TimeTrackerApp() {
       let data: TodayState;
       switch (command.intent) {
         case "START_ACTIVITY":
-          try {
-            data = await startActivity({
-              task: command.task,
-              startAt: toHKISOString(command.startAt),
-            });
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : "";
-            if (msg.startsWith("ACTIVE_CONFLICT:")) {
-              const payload = JSON.parse(
-                msg.slice("ACTIVE_CONFLICT:".length),
-              ) as {
-                active: ActivityEntry;
-              };
-              setConflict({
-                active: payload.active,
-                pending: command,
-              });
-              return;
-            }
-            throw e;
-          }
+          data = await startActivity({
+            task: command.task,
+            startAt: toHKISOString(command.startAt),
+          });
           break;
         case "END_ACTIVITY":
           data = await finishActivity({
             endAt: toHKISOString(command.endAt),
+            taskHint: command.taskHint,
           });
           break;
         case "ADD_COMPLETE_ACTIVITY":
@@ -177,29 +157,11 @@ export function TimeTrackerApp() {
     ? parseCommand(confirmText, new Date())
     : null;
 
-  const onConflictResolve = async (finishPrevious: boolean) => {
-    if (!conflict) return;
-    const { active, pending: startCmd } = conflict;
-    setConflict(null);
-    if (!finishPrevious) return;
-
-    setBusy(true);
-    try {
-      const data = await startActivity({
-        task: startCmd.task,
-        startAt: toHKISOString(startCmd.startAt),
-        finishPreviousId: active.id,
-      });
-      setState(data);
-      showToast("已保存");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "保存失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const active = state?.active ?? null;
+  const actives =
+    state?.actives ??
+    state?.entries.filter((e) => !e.endAt) ??
+    [];
+  const active = actives[0] ?? state?.active ?? null;
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-lg flex-col gap-5 px-4 pb-10 pt-6">
@@ -231,24 +193,49 @@ export function TimeTrackerApp() {
         </p>
         {loading ? (
           <p className="mt-3 text-neutral-500">加载中…</p>
-        ) : active ? (
+        ) : actives.length > 0 ? (
           <>
-            <p className="mt-2 text-2xl font-semibold text-neutral-900">
-              {active.task}
+            <p className="mt-2 text-xs text-neutral-500">
+              最近开始（说「结束」会结束这一项）
             </p>
-            <p className="mt-1 text-neutral-600">
-              开始于 {formatTimeDisplay(parseISO(active.startAt))}
+            <p className="mt-1 text-2xl font-semibold text-neutral-900">
+              {active?.task}
             </p>
-            <p className="mt-1 text-lg tabular-nums text-neutral-800">
-              {formatElapsed(parseISO(active.startAt), now)} 进行中
-            </p>
+            {active && (
+              <p className="mt-1 text-lg tabular-nums text-neutral-800">
+                {formatElapsed(parseISO(active.startAt), now)} 进行中
+              </p>
+            )}
+            {actives.length > 1 && (
+              <ul className="mt-4 space-y-2 border-t border-neutral-100 pt-3">
+                <p className="text-xs font-medium text-neutral-500">
+                  同时进行（{actives.length} 项）
+                </p>
+                {actives.map((a) => (
+                  <li
+                    key={a.id}
+                    className="flex items-center justify-between gap-2 text-sm"
+                  >
+                    <span className="font-medium text-neutral-800">{a.task}</span>
+                    <button
+                      type="button"
+                      disabled={busy || !isApiConfigured()}
+                      onClick={() => openCommandEditor(`结束 ${a.task}`)}
+                      className="shrink-0 rounded-lg border border-neutral-300 px-2 py-1 text-xs"
+                    >
+                      结束
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             <button
               type="button"
               disabled={busy || !isApiConfigured()}
               onClick={() => openConfirm("结束")}
               className="mt-4 w-full rounded-2xl bg-neutral-900 py-4 text-lg font-medium text-white active:scale-[0.99] disabled:opacity-40"
             >
-              结束
+              结束最近一项
             </button>
           </>
         ) : (
@@ -411,37 +398,6 @@ export function TimeTrackerApp() {
                 onClick={onConfirm}
               >
                 确认
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {conflict && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 sm:items-center">
-          <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-xl">
-            <p className="text-lg font-medium text-neutral-900">
-              「{conflict.active.task}」正在进行
-            </p>
-            <p className="mt-2 text-neutral-600">
-              从 {formatTimeDisplay(parseISO(conflict.active.startAt))}{" "}
-              开始。是否结束它并改为开始「{conflict.pending.task}」？
-            </p>
-            <div className="mt-5 flex flex-col gap-2">
-              <button
-                type="button"
-                disabled={busy}
-                className="rounded-2xl bg-neutral-900 py-3 font-medium text-white disabled:opacity-40"
-                onClick={() => onConflictResolve(true)}
-              >
-                结束并开始「{conflict.pending.task}」
-              </button>
-              <button
-                type="button"
-                className="rounded-2xl border border-neutral-300 py-3 font-medium"
-                onClick={() => onConflictResolve(false)}
-              >
-                取消
               </button>
             </div>
           </div>

@@ -27,6 +27,9 @@ describe("parseCommand", () => {
     assert.equal(parseCommand("结束", ref).intent, "END_ACTIVITY");
     assert.equal(parseCommand("结束 写作业", ref).intent, "END_ACTIVITY");
     assert.equal(parseCommand("Finish homework", ref).intent, "END_ACTIVITY");
+    assert.equal(parseCommand("Finished homework", ref).intent, "END_ACTIVITY");
+    assert.equal(parseCommand("结束任务B", ref).intent, "END_ACTIVITY");
+    assert.equal(parseCommand("开始任务A", ref).intent, "START_ACTIVITY");
   });
 
   it("starts at time English", () => {

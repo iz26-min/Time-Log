@@ -61,11 +61,13 @@ export async function startActivity(params: {
 export async function finishActivity(params: {
   id?: string;
   endAt: string;
+  taskHint?: string;
 }): Promise<TodayState> {
   return callApi<TodayState>({
     action: "finishActivity",
     id: params.id,
     endAt: params.endAt,
+    taskHint: params.taskHint,
   });
 }
 
